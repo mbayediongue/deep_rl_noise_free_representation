@@ -21,7 +21,7 @@ class EfficientReplayBufferContrastive(AbstractReplayBuffer):
     '''Fast + efficient replay buffer implementation in numpy.'''
 
     def __init__(self, buffer_size, batch_size, nstep, discount, frame_stack,
-                 data_specs=None, sarsa=False, constrastive_sub_buffer_size=50):
+                 data_specs=None, sarsa=False, constrastive_sub_buffer_size=None):
         self.buffer_size = buffer_size
         self.data_dict = {}
         self.index = -1
@@ -35,7 +35,8 @@ class EfficientReplayBufferContrastive(AbstractReplayBuffer):
         self.discount_vec = np.power(discount, np.arange(nstep))  # n_step - first dim should broadcast
         self.next_dis = discount ** nstep
         self.sarsa = sarsa
-        self.constrastive_sub_buffer_size = constrastive_sub_buffer_size
+        if constrastive_sub_buffer_size is None:
+            self.constrastive_sub_buffer_size = batch_size
     
 
     def _initial_setup(self, time_step):

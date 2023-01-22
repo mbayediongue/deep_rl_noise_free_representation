@@ -11,12 +11,14 @@ import h5py
 from collections import deque
 import dmc
 from dm_env import StepType
-from drqbc.numpy_replay_buffer import EfficientReplayBuffer
+from drqbc.numpy_replay_buffer import EfficientReplayBufferContrastive
 
 import torch
 import torch.nn as nn
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
+import torchvision.datasets as datasets
+import torchvision.transforms as transforms
 
 
 class eval_mode:
@@ -179,7 +181,7 @@ def load_offline_dataset_into_buffer(offline_dir, replay_buffer, frame_stack, re
     print("Finished, loaded {} timesteps.".format(int(num_steps)))
 
 
-def add_offline_data_to_buffer(offline_data: dict, replay_buffer: EfficientReplayBuffer, framestack: int = 3):
+def add_offline_data_to_buffer(offline_data: dict, replay_buffer: EfficientReplayBufferContrastive, framestack: int = 3):
     offline_data_length = offline_data['reward'].shape[0]
     for v in offline_data.values():
         assert v.shape[0] == offline_data_length
@@ -196,6 +198,59 @@ def add_offline_data_to_buffer(offline_data: dict, replay_buffer: EfficientRepla
             time_step_stack = time_step._replace(observation=np.concatenate(stacked_frames, axis=0))
             replay_buffer.add(time_step_stack)
 
+def add_offline_data_to_buffer_cifar(offline_data: dict, replay_buffer: EfficientReplayBufferContrastive, framestack: int = 3):
+    offline_data_length = offline_data['reward'].shape[0]
+    for v in offline_data.values():
+        assert v.shape[0] == offline_data_length
+    done_list = np.argwhere(offline_data['step_type'] == 2)
+    assert len(done_list) > 1
+    interval = done_list[1] - done_list[0]
+    now = -1
+    max_k = 10
+
+    # Add CIFAR images as distractors in the top left corner
+    training_data = datasets.CIFAR10(root="data", train=True, download=True,
+                                     transform=transforms.Compose([
+                                         transforms.ToTensor(),
+                                     ]))
+
+    for idx in range(offline_data_length):
+        time_step = get_timestep_from_idx(offline_data, idx)
+        if not time_step.first():
+            now += 1
+            stacked_frames.append(time_step.observation)
+            time_step.observation = np.concatenate(stacked_frames, axis=0)
+            index = np.random.randint(low=0, high=training_data.__len__()-1)
+            cifar_x, _ = training_data.__getitem__(
+                1)  # next(iter(training_loader))
+            cifar_x = np.tile(cifar_x.float() * 255, (3, 1, 1))
+            shape = cifar_x.shape
+            time_step.observation[:, :shape[1], :shape[1]] = cifar_x
+            time_step_stack = time_step
+
+            # rindex = random.randint(now+1, min(interval-1, now+max_k))
+            rindex = min(interval-1, now+max_k)
+            rindex = rindex - now
+            time_step_stack.k_step = rindex
+            replay_buffer.add(time_step_stack)
+
+        else:
+            now = -1
+            stacked_frames = deque(maxlen=framestack)
+            while len(stacked_frames) < framestack:
+                stacked_frames.append(time_step.observation)
+            time_step.observation = np.concatenate(stacked_frames, axis=0)
+            index = np.random.randint(low=0, high=training_data.__len__()-1)
+            cifar_x, _ = training_data.__getitem__(
+                0)  # next(iter(training_loader))
+            cifar_x = np.tile(cifar_x.float() * 255, (3, 1, 1))
+            shape = cifar_x.shape
+            time_step.observation[:, :shape[1], :shape[1]] = cifar_x
+            time_step_stack = time_step
+            rindex = random.randint(now+1, min(interval-1, now+max_k))
+            rindex = rindex - now
+            time_step_stack.k_step = rindex
+            replay_buffer.add(time_step_stack)
 
 def get_timestep_from_idx(offline_data: dict, idx: int):
     return dmc.ExtendedTimeStep(
@@ -203,5 +258,6 @@ def get_timestep_from_idx(offline_data: dict, idx: int):
         reward=offline_data['reward'][idx],
         observation=offline_data['observation'][idx],
         discount=offline_data['discount'][idx],
-        action=offline_data['action'][idx]
+        action=offline_data['action'][idx],
+        k_step=idx
     )

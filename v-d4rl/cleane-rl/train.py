@@ -20,7 +20,7 @@ from dm_env import specs
 import dmc
 import utils
 from logger import Logger
-from numpy_replay_buffer import EfficientReplayBuffer
+from numpy_contrastive_replay_buffer import  EfficientReplayBufferContrastive
 from video import TrainVideoRecorder, VideoRecorder
 from utils import load_offline_dataset_into_buffer
 
@@ -65,14 +65,14 @@ class Workspace:
                       specs.Array((1,), np.float32, 'reward'),
                       specs.Array((1,), np.float32, 'discount'))
 
-        self.replay_buffer = EfficientReplayBuffer(self.cfg.replay_buffer_size,
+        self.replay_buffer =  EfficientReplayBufferContrastive(self.cfg.replay_buffer_size,
                                                    self.cfg.batch_size,
                                                    self.cfg.nstep,
                                                    self.cfg.discount,
                                                    self.cfg.frame_stack,
-                                                   data_specs)
+                                                   data_specs,
+                                                   constrastive_sub_buffer_size=2*self.cfg.batch_size)
         
-        self.contrastive_replay_buffer = 
         self.video_recorder = VideoRecorder(
             self.work_dir if self.cfg.save_video else None)
         self.train_video_recorder = TrainVideoRecorder(
